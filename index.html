@@ -328,21 +328,15 @@
     width: 100%; padding: 30px 10px;
     animation: fadeUp 1s ease;
   }
-  .book-scene.hide { display: none; }
+  .book-scene.hide { display: none !important; }
   .book {
     position: relative;
     width: min(430px, 90vw);
     height: min(560px, 80vh);
     transform-style: preserve-3d;
-    transform: rotateX(6deg) rotateZ(-0.6deg);
-    animation: bookFloat 6s ease-in-out infinite;
+    transform: rotateX(5deg);
     will-change: transform;
   }
-  @keyframes bookFloat {
-    0%, 100% { transform: rotateX(6deg) rotateZ(-0.6deg) translateY(0); }
-    50%      { transform: rotateX(6deg) rotateZ(-0.6deg) translateY(-9px); }
-  }
-  .book.open { animation: none; transform: rotateX(6deg) rotateZ(-0.6deg); }
 
   /* soft ground shadow */
   .book-shadow {
@@ -405,7 +399,37 @@
     z-index: 5;
     will-change: transform;
   }
-  .book.open .cover-wrap { transform: rotateY(-164deg); }
+  .book.open .cover-wrap { transform: rotateY(-164deg); pointer-events: none; }
+
+  /* Once the cover has swung open, FLATTEN the book into a normal, fully
+     scrollable/clickable card. The 3D transform context breaks touch-scroll
+     and pointer hit-testing on mobile, so we drop it after the animation. */
+  .book-scene.flat { display: block; perspective: none; padding: 66px 12px 46px; }
+  .book.flat {
+    transform: none !important;
+    animation: none !important;
+    transform-style: flat;
+    width: min(440px, 94vw);
+    height: auto;
+    margin: 0 auto;
+  }
+  .book.flat .cover-wrap,
+  .book.flat .book-shadow,
+  .book.flat .book-spine,
+  .book.flat .page-shadow { display: none; }
+  .book.flat .book-page {
+    position: relative; inset: auto;
+    height: auto; min-height: 66vh; overflow: visible;
+  }
+  .book.flat .page-content {
+    position: relative; inset: auto;
+    opacity: 1 !important;
+    height: auto; overflow: visible;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* let the whole page scroll naturally instead of flex-clipping tall content */
+  .stage.flow { display: block; min-height: auto; padding: 0; }
+
   .cover-face {
     position: absolute; inset: 0;
     backface-visibility: hidden;
@@ -587,7 +611,10 @@
   <div class="stars" id="stars"></div>
   <div class="bg-photos" id="bgPhotos"></div>
   <button class="lang-btn" id="langBtn" title="தமிழ் / English">தமிழ்</button>
-  <button class="music-btn" id="musicBtn" title="Toggle music">🎵</button>
+  <button class="music-btn" id="musicBtn" title="Toggle nasheed">🎵</button>
+  <audio id="nasheed" loop preload="auto" playsinline>
+    <source src="nasheed.mp3" type="audio/mpeg">
+  </audio>
 
   <div class="stage">
     <!-- BOOK -->
@@ -703,16 +730,25 @@
     }, 5500);
   }
 
-  // ===== Audio (Web Audio API - generated music) =====
-  let audioCtx, masterGain, musicOn = true, musicNodes = [];
+  // ===== Audio: Islamic nasheed in the background + gentle chimes on taps =====
+  let audioCtx, masterGain, musicOn = true;
+  const nasheedAudio = document.getElementById('nasheed');
 
   function initAudio() {
+    // play the nasheed (started from the user's tap, so autoplay is allowed)
+    if (nasheedAudio && musicOn) {
+      nasheedAudio.volume = 0.55;
+      const p = nasheedAudio.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+    // light Web-Audio context purely for the soft tap chimes
     if (audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.15;
-    masterGain.connect(audioCtx.destination);
-    startBackgroundMusic();
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.12;
+      masterGain.connect(audioCtx.destination);
+    } catch (e) { audioCtx = null; }
   }
 
   // gentle chime on reveal
@@ -731,29 +767,6 @@
       osc.start(now + i * 0.04);
       osc.stop(now + 1.6);
     });
-  }
-
-  // soft ambient lullaby loop
-  function startBackgroundMusic() {
-    const notes = [523.25, 587.33, 659.25, 783.99, 880.00, 783.99, 659.25, 587.33]; // C5 D5 E5 G5 A5 G5 E5 D5
-    let i = 0;
-    function playNote() {
-      if (!musicOn || !audioCtx) return;
-      const now = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = notes[i % notes.length];
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.06, now + 0.3);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
-      osc.connect(g); g.connect(masterGain);
-      osc.start(now);
-      osc.stop(now + 1.5);
-      i++;
-    }
-    playNote();
-    musicNodes.push(setInterval(playNote, 700));
   }
 
   // ===== Confetti =====
@@ -825,12 +838,23 @@
   });
 
   // open the book
+  const stageEl = document.querySelector('.stage');
+  let opened = false;
   openBtn.addEventListener('click', () => {
+    if (opened) return;
+    opened = true;
     initAudio();
     chime(659.25);
     confetti(30);
     book.classList.add('open');
     musicBtn.classList.add('show');
+    // after the cover finishes swinging, flatten the 3D book into a normal,
+    // reliably scrollable & clickable card (fixes mobile tap/scroll issues)
+    setTimeout(() => {
+      book.classList.add('flat');
+      bookScene.classList.add('flat');
+      stageEl.classList.add('flow');
+    }, 1550);
   });
 
   // turn to the question page
@@ -838,6 +862,7 @@
     chime(783.99);
     stepSurahs.classList.remove('active');
     stepQuestion.classList.add('active');
+    stepQuestion.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 
   // a few gentle surah questions (never locked out — retry freely)
@@ -976,7 +1001,9 @@
   musicBtn.addEventListener('click', () => {
     musicOn = !musicOn;
     musicBtn.textContent = musicOn ? '🎵' : '🔇';
-    if (musicOn && audioCtx && musicNodes.length === 0) startBackgroundMusic();
+    if (!nasheedAudio) return;
+    if (musicOn) { nasheedAudio.volume = 0.55; const p = nasheedAudio.play(); if (p && p.catch) p.catch(() => {}); }
+    else { nasheedAudio.pause(); }
   });
 
   // ===== Carousel =====
