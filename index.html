@@ -1013,8 +1013,10 @@
 
   function goTo(i) {
     if (i < 0 || i >= slidesData.length || i === current) return;
+    const forward = i > current;
     slides[current].classList.remove('active');
-    slides[current].classList.add(i > current ? 'prev' : '');
+    if (forward) slides[current].classList.add('prev');   // outgoing card slides out to the left
+    else slides[current].classList.remove('prev');        // going back: outgoing card slides out to the right
     slides[i].classList.remove('prev');
     slides[i].classList.add('active');
     current = i;
@@ -1043,6 +1045,20 @@
   prevBtn.addEventListener('click', () => goTo(current - 1));
   nextBtn.addEventListener('click', () => goTo(current + 1));
   prevBtn.disabled = true;
+
+  // touch + mouse swipe on the cards (left = next, right = back)
+  let swipeX = null;
+  function onSwipeStart(x) { swipeX = x; }
+  function onSwipeEnd(x) {
+    if (swipeX === null) return;
+    const dx = x - swipeX; swipeX = null;
+    if (Math.abs(dx) < 40) return;          // ignore tiny moves / taps
+    goTo(current + (dx < 0 ? 1 : -1));       // swipe left → next, swipe right → previous
+  }
+  slidesEl.addEventListener('touchstart', e => onSwipeStart(e.changedTouches[0].clientX), { passive: true });
+  slidesEl.addEventListener('touchend',   e => onSwipeEnd(e.changedTouches[0].clientX),   { passive: true });
+  slidesEl.addEventListener('mousedown',  e => onSwipeStart(e.clientX));
+  slidesEl.addEventListener('mouseup',    e => onSwipeEnd(e.clientX));
 </script>
 </body>
 </html>
